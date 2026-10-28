@@ -86,6 +86,28 @@ the **filtered** 13592 rows — `Llama-2-7b-hf` gives 35.80 / 22.95 filtered ver
 inference costs us nothing we compare against; we simply never produce the
 unfiltered number that `eval_clm.py` prints.
 
+## 2026-10-28 — Pilot: proposed main design changed from `full16` to `balanced1`
+
+`CLAUDE.md` makes `full16` the default for main results. The pilot on the
+authors' released `perm` data (`docs/pilot_released_data.md` §5) shows this buys
+nothing for 16x the cost:
+
+- The conditional logit identifies label and position *within* a choice set of 4
+  alternatives, so its standard errors track the number of choice sets — i.e.
+  forward passes — not versions per question. At a fixed 12000 forward passes,
+  SEs are flat from 1 to 24 versions per question (0.0322 vs 0.0342 for slot 1).
+- For the marginal tables (pick rate, recall, RStd), spreading the same budget
+  over more questions is strictly better, since question-level variance
+  dominates: sd of the max-min pick rate is 0.68 at 1 version/question against
+  2.36 at 24.
+
+Proposed: `balanced1` over all 13592 items x 5 seeds for the headline numbers,
+and `full16` on a ~1000-question subset as the within-question robustness check
+(it remains the only design that puts every label at every position for the
+*same* question). Not yet acted on — `CLAUDE.md` is unchanged and the decision is
+to be confirmed in Phase 5 against our own smoke-test output before Phase 6
+launches.
+
 ## 2026-10-28 — Open questions raised by reading upstream's run script
 
 Not deviations yet; flagged for Phase 1/2 to resolve, since each could change
