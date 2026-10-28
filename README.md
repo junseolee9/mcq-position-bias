@@ -28,7 +28,25 @@ Upstream code is a git submodule at `third_party/LLM-MCQ-Bias`
   upstream runs unmodified. Current releases break it — see `docs/deviations.md`
   before bumping anything.
 
-Released result files: https://github.com/chujiezheng/LLM-MCQ-Bias_data
+## Released results (optional, for reference numbers)
+
+The authors also publish every result file:
+https://github.com/chujiezheng/LLM-MCQ-Bias_data. The full repo is 12.45 GB; we
+take a ~424 MB sparse slice into `data/` (gitignored):
+
+```bash
+git clone --filter=blob:none --no-checkout --depth 1 \
+  https://github.com/chujiezheng/LLM-MCQ-Bias_data.git data/LLM-MCQ-Bias_data
+cd data/LLM-MCQ-Bias_data
+git sparse-checkout init --cone
+git sparse-checkout set debias_pride results_mmlu/0s_llama-7b results_mmlu/0s_Llama-2-7b-hf
+git checkout main
+```
+
+With it, `scripts/check_released_results.py` recomputes the Table 3 baseline on a
+laptop — which is how we identified the 35.8 / 23.0 row and validated our RStd
+recipe without using the GPU. See `docs/reproduction.md`. Tests that need it skip
+cleanly when it is absent.
 
 ## Environments
 

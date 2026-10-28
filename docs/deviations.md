@@ -78,10 +78,13 @@ Applying upstream's own lists to the shipped MMLU CSVs filters 450 / 14042 =
 We keep `CLAUDE.md`'s design — filter in `data.py`, before inference — because
 rotating an "all of the above" item is meaningless and paying for 16 versions of
 it is waste. This is a deviation in *when* the filter applies, not *what* it
-filters; the lists and their matching semantics are copied verbatim. It changes
-no reported number for the filtered population, but it does mean we never produce
-the unfiltered 14042-row accuracy that `eval_clm.py` prints. Phase 2 must
-therefore compare against Table 3 on the filtered 13592 rows and say so.
+filters; the lists and their matching semantics are copied verbatim.
+
+Resolved from the released results (`docs/reproduction.md`): the paper reports on
+the **filtered** 13592 rows — `Llama-2-7b-hf` gives 35.80 / 22.95 filtered versus
+36.06 / 22.51 unfiltered, and Table 3 says 35.8 / 23.0. So filtering before
+inference costs us nothing we compare against; we simply never produce the
+unfiltered number that `eval_clm.py` prints.
 
 ## 2026-10-28 — Open questions raised by reading upstream's run script
 
@@ -89,11 +92,12 @@ Not deviations yet; flagged for Phase 1/2 to resolve, since each could change
 what "reproducing the baseline" means.
 
 - ~~`scripts/run_llama-7b.sh` evaluates `huggyllama/llama-7b` (LLaMA-1 7B), not
-  `meta-llama/Llama-2-7b-hf`.~~ Partly resolved in Phase 1: `debias_pride.py:25-46`
-  lists the paper's full model set and `Llama-2-7b-hf` is in it, so the run script
-  is only a LLaMA-1 example. Still open: which model Table 3's RStd 23.0 / Acc
-  35.8 row reports. Confirm against the paper or the released `LLM-MCQ-Bias_data`
-  repo before calling any difference a reproduction gap.
+  `meta-llama/Llama-2-7b-hf`. Which model is Table 3's RStd 23.0 / Acc 35.8?~~
+  **Resolved** from the released results: it is `Llama-2-7b-hf` on the filtered
+  population, 35.80 / 22.95 (`docs/reproduction.md`). `CLAUDE.md` was right. The
+  intermediate guess that it might be LLaMA-1 — whose PriDe-*debiased* accuracy
+  is 35.34, coincidentally near 35.8 — was wrong; LLaMA-1's baseline is
+  33.75 / 18.52.
 - ~~Upstream already implements `cyclic` and `perm`.~~ Resolved in Phase 1
   (`docs/upstream_notes.md` §4): both move option content with the labels left in
   `A B C D`, so they vary gold position but never which label sits at which
