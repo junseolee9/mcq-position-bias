@@ -36,6 +36,12 @@ Two upstream dependencies are deliberately not installed: `openai`, needed only
 by the `eval_ichat*` GPT-3.5 path we do not run, and `bitsandbytes`, since
 `BitsAndBytesConfig` is imported but unused at bf16.
 
+`datasets` is also dropped, though `CLAUDE.md` Phase 0 lists it. Nothing needs
+it: the preprocessed MMLU / ARC / CSQA CSVs ship inside the upstream submodule
+(8 MB of data, 13 MB submodule total) and upstream reads them with
+`pandas.read_csv`, so no task data is ever fetched from the Hub. Only model
+weights are downloaded, into `$SCRATCH/hf_cache`.
+
 Exact remote versions are captured in `docs/requirements.remote.lock.txt` by
 `scripts/setup_remote.sh`.
 
