@@ -39,19 +39,65 @@ by the `eval_ichat*` GPT-3.5 path we do not run, and `bitsandbytes`, since
 Exact remote versions are captured in `docs/requirements.remote.lock.txt` by
 `scripts/setup_remote.sh`.
 
+## 2026-10-28 — Phase 1: `CLAUDE.md` scoring spec corrected to match upstream
+
+`CLAUDE.md` specifies "logits of the 4 label tokens, softmax over those 4 only".
+Upstream does not do this. `eval_clm_utils.py:197-202` builds **8** ids — the
+space-prefixed and bare variant of each label — softmaxes over all 8, then sums
+the two variants per label:
+
+```python
+option_indices = [toker(f': {e}').input_ids[-1] for e in option_ids] + \
+    [toker(f':{e}').input_ids[-1] for e in option_ids]
+probs = F.softmax(logits[..., option_indices], dim=-1)...
+probs = probs.reshape(2, len(option_ids)).sum(axis=0)
+```
+
+We follow **upstream**, not `CLAUDE.md`, since ground rule 2 requires our scoring
+to match the paper's. `score.py` therefore softmaxes over 8 ids and sums pairs;
+`p_A..p_D` in the output schema are the summed values. A 4-id softmax is a
+different estimator and would change both accuracy and RStd. For LLaMA all eight
+ids are single tokens (`docs/upstream_notes.md` §6), so the scheme is well
+defined; this must be re-checked per model in Phase 4.
+
+## 2026-10-28 — Phase 1: invalid items are filtered after inference, not before
+
+`CLAUDE.md` has `data.py` dropping the "all of the above" / "A and B" items at
+load time, and asks whether the preprocessed data already excludes them. It does
+not: the shipped CSVs contain them, inference runs over all of them, and upstream
+drops them only when re-reading results (`utils.load_results`, `utils.py:80-85`).
+Applying upstream's own lists to the shipped MMLU CSVs filters 450 / 14042 =
+**3.20%**, matching the paper's stated 3.2%.
+
+We keep `CLAUDE.md`'s design — filter in `data.py`, before inference — because
+rotating an "all of the above" item is meaningless and paying for 16 versions of
+it is waste. This is a deviation in *when* the filter applies, not *what* it
+filters; the lists and their matching semantics are copied verbatim. It changes
+no reported number for the filtered population, but it does mean we never produce
+the unfiltered 14042-row accuracy that `eval_clm.py` prints. Phase 2 must
+therefore compare against Table 3 on the filtered 13592 rows and say so.
+
 ## 2026-10-28 — Open questions raised by reading upstream's run script
 
 Not deviations yet; flagged for Phase 1/2 to resolve, since each could change
 what "reproducing the baseline" means.
 
-- `scripts/run_llama-7b.sh` evaluates `huggyllama/llama-7b` (LLaMA-**1** 7B), not
-  the `meta-llama/Llama-2-7b-hf` named in `CLAUDE.md` Phase 2. Before claiming a
-  reproduction gap against Table 3's RStd 23.0 / Acc 35.8, confirm which model
-  that row reports.
-- Upstream already implements `cyclic` and `perm` settings, i.e. option-content
-  permutation with labels left in place. Our contribution is the *crossed* label
-  rotation x content rotation; Phase 3 should state the difference explicitly and
-  reuse upstream's setting where it coincides.
-- Upstream's tokenizer is constructed with `add_bos_token=False`, which confirms
-  the no-BOS convention assumed in `CLAUDE.md`. To be recorded with file and line
-  in `docs/upstream_notes.md`.
+- ~~`scripts/run_llama-7b.sh` evaluates `huggyllama/llama-7b` (LLaMA-1 7B), not
+  `meta-llama/Llama-2-7b-hf`.~~ Partly resolved in Phase 1: `debias_pride.py:25-46`
+  lists the paper's full model set and `Llama-2-7b-hf` is in it, so the run script
+  is only a LLaMA-1 example. Still open: which model Table 3's RStd 23.0 / Acc
+  35.8 row reports. Confirm against the paper or the released `LLM-MCQ-Bias_data`
+  repo before calling any difference a reproduction gap.
+- ~~Upstream already implements `cyclic` and `perm`.~~ Resolved in Phase 1
+  (`docs/upstream_notes.md` §4): both move option content with the labels left in
+  `A B C D`, so they vary gold position but never which label sits at which
+  position. `shuffle_both` does permute labels, but as a single content-seeded
+  draw per question, unbalanced, with the label column out of order. The crossed
+  label x position design is genuinely new; Phase 3 states this in `rotate.py`.
+- ~~Tokenizer sets `add_bos_token=False`.~~ Resolved: confirmed at
+  `eval_clm.py:51-54` and verified empirically against the LLaMA tokenizer
+  (`docs/upstream_notes.md` §6). No BOS, every label a single token.
+- New: upstream never computes RStd for a default-order run — its RStd lives
+  inside the PriDe pipeline and consumes `perm`/`cyclic` probabilities
+  (`debias_pride.py:152-154`). Phase 2 must compute the baseline RStd itself with
+  upstream's recipe (per-gold-label recall, x100, `np.std`, `ddof=0`).
