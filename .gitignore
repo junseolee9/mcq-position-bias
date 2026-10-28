@@ -1,0 +1,13 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+data/
+results/raw/
+*.parquet
+*.safetensors
+*.bin
+.DS_Store
+.env
+.idea/

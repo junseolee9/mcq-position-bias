@@ -1,0 +1,3 @@
+[submodule "third_party/LLM-MCQ-Bias"]
+	path = third_party/LLM-MCQ-Bias
+	url = https://github.com/chujiezheng/LLM-MCQ-Bias.git
