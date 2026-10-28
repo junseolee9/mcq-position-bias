@@ -29,9 +29,26 @@ else
     echo "[setup] HF_HOME export already in $BASHRC"
 fi
 
-python3 -m venv "$REPO_ROOT/.venv"
+# torch 2.1.2 publishes no wheels for Python 3.12+, and our pins are deliberate
+# (docs/deviations.md), so fail loudly instead of resolving to something else.
+# Override with PYTHON=/path/to/python3.11, or `module load python/3.11` first.
+PYTHON="${PYTHON:-python3}"
+PYVER="$("$PYTHON" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+case "$PYVER" in
+    3.9|3.10|3.11) echo "[setup] using $PYTHON ($PYVER)" ;;
+    *)
+        echo "[setup] ERROR: Python $PYVER has no torch==2.1.2 wheel; need 3.9-3.11." >&2
+        echo "[setup] try: module avail python   then  PYTHON=python3.11 bash scripts/setup_remote.sh" >&2
+        exit 1
+        ;;
+esac
+
+"$PYTHON" -m venv "$REPO_ROOT/.venv"
 VPY="$REPO_ROOT/.venv/bin/python"
 "$VPY" -m pip install --upgrade pip
+# Default PyPI torch 2.1.2 is the cu121 build; if the node's driver is older than
+# 525 use the cu118 wheels instead:
+#   "$VPY" -m pip install torch==2.1.2 --index-url https://download.pytorch.org/whl/cu118
 "$VPY" -m pip install -r "$REPO_ROOT/requirements.txt"
 
 # Record the versions that actually produced the results. The macOS dev

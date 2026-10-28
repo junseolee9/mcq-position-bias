@@ -1,13 +1,26 @@
-torch
-transformers
-accelerate
-datasets
-pandas
-pyarrow
-statsmodels
-scipy
-matplotlib
-pyyaml
-pytest
-tqdm
-ipykernel
+# Pinned to upstream's era (LLM-MCQ-Bias@2ae2f40, ICLR 2024) rather than to
+# current releases. Rationale and the specific incompatibilities are in
+# docs/deviations.md. Do not bump these to "fix" an error without an entry there.
+
+# --- upstream's inference stack ---
+torch==2.1.2
+transformers==4.36.2
+tokenizers==0.15.2
+huggingface_hub==0.20.3
+accelerate==0.25.0
+sentencepiece==0.1.99        # required by upstream's use_fast=False LLaMA tokenizer
+protobuf==3.20.3             # sentencepiece model parsing
+nvidia-ml-py==12.535.133     # upstream imports pynvml for memory logging
+scikit-learn==1.3.2          # upstream eval_ichat_utils.classification_report
+
+# --- shared / our analysis ---
+numpy==1.26.4                # <2.0: numpy 2 breaks wheels built against 1.x
+pandas==2.1.4
+pyarrow==14.0.2
+scipy==1.11.4
+statsmodels==0.14.1
+matplotlib==3.8.2
+pyyaml==6.0.1
+tqdm==4.66.1
+pytest==7.4.4
+ipykernel                    # JupyterLab kernel on the remote node; not upstream's

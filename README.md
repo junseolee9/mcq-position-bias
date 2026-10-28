@@ -23,6 +23,10 @@ Upstream code is a git submodule at `third_party/LLM-MCQ-Bias`
 - Never edited. Code we reuse is imported, or copied into `src/` with a
   `# adapted from LLM-MCQ-Bias/<path>@2ae2f40` comment.
 - The clone ships the preprocessed MMLU / ARC / CSQA data under `code/data_*`.
+- Upstream ships no requirements file, so `requirements.txt` is pinned to the
+  APIs its code calls (`transformers==4.36.2`, `torch==2.1.2`, `numpy<2`) and
+  upstream runs unmodified. Current releases break it — see `docs/deviations.md`
+  before bumping anything.
 
 Released result files: https://github.com/chujiezheng/LLM-MCQ-Bias_data
 
@@ -33,7 +37,7 @@ Two machines, deliberately split:
 | | Local (dev) | Remote (runs) |
 |---|---|---|
 | Hardware | macOS arm64, no NVIDIA GPU | A100, NSF ACCESS allocation via JupyterLab |
-| Python | 3.11 (Homebrew) | 3.11+ from the node |
+| Python | 3.11 (Homebrew) | 3.11 from the node |
 | Used for | code, tests, analysis of downloaded results | all model inference |
 
 All reported numbers come from the remote A100. The local machine runs `pytest`
