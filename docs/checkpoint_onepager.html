@@ -1,0 +1,60 @@
+<html>
+<head><meta charset="utf-8"><title>Token Bias vs. Position Bias — One-Page Summary</title></head>
+<!--
+  Source for the checkpoint one-pager. Build the .docx with macOS textutil
+  (no extra dependency), then shrink the default 1in margins so it holds one page:
+
+    textutil -convert docx docs/checkpoint_onepager.html -output ~/Downloads/mcq-bias-onepager.docx
+    .venv/bin/python scripts/set_docx_margins.py ~/Downloads/mcq-bias-onepager.docx
+-->
+
+<body style="font-family: Calibri, Helvetica, sans-serif; font-size: 10pt; line-height: 1.15;">
+
+<p style="margin:0 0 1pt 0; font-size: 12.5pt;"><b>Token Bias vs. Position Bias in LLM Multiple-Choice Selection</b></p>
+<p style="margin:0 0 6pt 0; font-size: 8.5pt; color:#444;">
+CSCI 567 project checkpoint &middot; J. Lee &middot; 28 October 2026 &middot; Zheng et al., <i>Large Language Models Are Not Robust Multiple Choice Selectors</i>, ICLR 2024 Spotlight (arXiv:2309.03882)
+</p>
+
+<p style="margin:0 0 2pt 0;"><b>1. Central claim</b></p>
+<p style="margin:0 0 6pt 0;">
+LLMs have a large, inconsistent preference among multiple-choice options that comes mainly from <b>token bias</b> &mdash; an a-priori preference for the label tokens A/B/C/D &mdash; rather than from <b>position bias</b>, a preference for where an option sits in the list.
+</p>
+
+<p style="margin:0 0 2pt 0;"><b>2. Key experiments</b></p>
+<p style="margin:0 0 6pt 0;">
+Zero-/five-shot MMLU, ARC-Challenge and CSQA over 20 models (LLaMA-1/2, Vicuna, Falcon, GPT-3.5). One forward pass per prompt; a softmax over the label tokens after <i>&ldquo;Answer:&rdquo;</i> gives the prediction. Bias is reported as <b>RStd</b>, the standard deviation of per-label recall. Conditions: <b>cyclic/perm</b> (option content permuted, labels left in place), <b>move_a&ndash;d</b> (gold swapped to a fixed label), <b>shuffle_both</b> (label&ndash;content pairs shuffled), and <b>&ldquo;removing IDs&rdquo;</b> (noid), the ablation carrying the main conclusion. They then propose <b>PriDe</b>, which estimates a label prior from a few permuted samples and divides it out, cutting RStd ~4&times; for ~5% extra compute.
+</p>
+
+<p style="margin:0 0 2pt 0;"><b>3. Our alternative hypothesis</b></p>
+<p style="margin:0 0 3pt 0;">
+A substantial part of the bias is positional, and the paper's design cannot see it.
+</p>
+<p style="margin:0 0 2pt 12pt;">
+<b>(a) The ablation changes two things at once.</b> &ldquo;Removing IDs&rdquo; deletes the labels <i>and</i> switches scoring from a next-token softmax over A/B/C/D to per-option likelihood, so any drop in bias is attributable to either change.
+</p>
+<p style="margin:0 0 6pt 12pt;">
+<b>(b) Elsewhere, label and position are the same variable.</b> We parsed the prompts in the authors' released results: in <i>cyclic</i>, <i>perm</i> and <i>move_a&ndash;d</i> the option text moves but the label column always reads A, B, C, D top to bottom, so &ldquo;label A&rdquo; and &ldquo;line 1&rdquo; are one regressor. If labels appear in natural order the label <i>is</i> a function of position; the only ways out are to break that order or delete the labels.
+</p>
+
+<p style="margin:0 0 2pt 0;"><b>4. Our experiment</b></p>
+<p style="margin:0 0 6pt 0;">
+Rotate label order and content order <b>independently</b>: with content shift <i>j</i> and label shift <i>k</i>, line <i>p</i> shows content <i>o</i>[(<i>p</i>+<i>j</i>)&nbsp;mod&nbsp;4] under label <i>&ldquo;ABCD&rdquo;</i>[(<i>p</i>+<i>k</i>)&nbsp;mod&nbsp;4] &mdash; 16 versions in which every label occupies every position. Prompt template, scoring and data filtering stay exactly as the paper's; only ordering changes. A conditional logistic regression over each 4-alternative choice set, with label dummies, position dummies and an <i>is_gold</i> term, separates the two effects.
+</p>
+
+<p style="margin:0 0 2pt 0;"><b>5. Status of the paper's code</b></p>
+<p style="margin:0 0 6pt 0;">
+Upstream is cloned read-only as a submodule pinned at <span style="font-family:Consolas,monospace;">2ae2f40</span>, with dependencies pinned to its era (<span style="font-family:Consolas,monospace;">transformers 4.36.2</span>, <span style="font-family:Consolas,monospace;">torch 2.1.2</span>) because current releases break it in ways that would change the label token ids we score. Reading it corrected two assumptions: scoring softmaxes over <b>eight</b> ids (space-prefixed and bare variants of each label, summed in pairs), not four; and the &ldquo;all of the above&rdquo;/&ldquo;A and B&rdquo; items are filtered <i>after</i> inference, not in the data &mdash; the authors' own lists drop 450/14042 = 3.20% of MMLU, matching their stated 3.2%. From the released result files we reproduced the Table 3 baseline exactly: <b>Llama-2-7b-hf, MMLU 0-shot, Acc 35.80 / RStd 22.95</b> on the filtered 13592 items. That identifies the row and validates our metric code before any GPU time. Runs go on an A100 through an NSF ACCESS allocation.
+</p>
+
+<p style="margin:0 0 2pt 0;"><b>6. Early evidence, from the authors' own data, no GPU</b></p>
+<p style="margin:0 0 6pt 0;">
+<i>shuffle_both</i> shuffles label&ndash;content <i>pairs</i>, so the gold label is fixed while each label's line position varies &mdash; the one released condition where position is estimable with label held fixed. Our conditional logit there (13592 choice sets) gives a position span of <b>0.66</b> logits for Llama-2-7b-hf and <b>0.81</b> for LLaMA-1-7b, against label spans of 2.78 and 0.91. For <b>both</b> models the position span exceeds the <i>is_gold</i> coefficient (0.43, 0.38): where an option sits moves the choice more than whether it is correct. With labels deleted (<i>noid</i>), recall still spreads 28.7 and 12.2 points across gold positions. Caveat: in <i>shuffle_both</i> each label keeps its original content, so label coefficients absorb content quality and are an upper bound &mdash; only the crossed design settles it.
+</p>
+
+<p style="margin:0 0 2pt 0;"><b>7. Questions for the TAs</b></p>
+<p style="margin:0;">
+(i) Rotating labels yields an unnatural column (B, C, D, A); is comparing <i>k</i>=0 against <i>k</i>&ne;0 accuracy enough to bound the cost of that oddity? (ii) Our pilot indicates one version per question across many questions is as precise as all 16 per question at 1/16 the cost, since the conditional logit identifies within a choice set &mdash; is 16 versions on a ~1000-question subset enough for the within-question check? (iii) Is &sect;6 reportable as a finding, or strictly as motivation?
+</p>
+
+</body>
+</html>
