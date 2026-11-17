@@ -20,27 +20,20 @@ import sys
 from pathlib import Path
 
 import numpy as np
-from sklearn.metrics import classification_report
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RELEASED = REPO_ROOT / "data/LLM-MCQ-Bias_data"
-UPSTREAM_CODE = REPO_ROOT / "third_party/LLM-MCQ-Bias/code"
 
-sys.path.insert(0, str(UPSTREAM_CODE))
-from utils import BAD_OPTIONS, REFER_OPTIONS  # noqa: E402  upstream, never edited
-
-
-def is_invalid(options):
-    """utils.load_results:80-85 -- BAD_OPTIONS case-sensitive, REFER_OPTIONS lowered."""
-    return any(e in o for e in BAD_OPTIONS for o in options) or any(
-        e in o.lower() for e in REFER_OPTIONS for o in options
-    )
-
-
-def rstd(labels, predictions, n_labels=4):
-    report = classification_report(labels, predictions, output_dict=True, zero_division=0)
-    recalls = [report[str(e)]["recall"] * 100 for e in range(n_labels)]
-    return float(np.std(recalls)), recalls
+# Both helpers live in src/ so there is exactly one copy of each. Importing
+# upstream's utils at runtime would need a sys.path insert into third_party and
+# would make CPython drop __pycache__ there, which ground rule 1 forbids;
+# mcqbias.data holds the filter lists, pinned equal to upstream's by
+# tests/test_upstream_facts.py. And because test_released_results.py checks this
+# script against the paper's own 22.95, importing rstd from the analysis module
+# validates that copy too.
+sys.path.insert(0, str(REPO_ROOT / "src"))
+from mcqbias.analyze import rstd  # noqa: E402
+from mcqbias.data import is_invalid  # noqa: E402
 
 
 def summarize(result_dir, label_ids="ABCD"):
