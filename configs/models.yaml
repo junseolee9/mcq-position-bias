@@ -1,0 +1,41 @@
+# The run set: 4 families x 3 members, all 7B-class so they fit the 20 GB A100
+# slice (18.7 GB usable) in bf16. Ten of the twelve are the paper's own models
+# (debias_pride.py:25-46). Every family in the paper has 7B as its *smallest*
+# member, so the axis within a family is variant, not size — see
+# docs/deviations.md, 2026-11-16.
+#
+# `gated` models need HF_TOKEN in /workspace/env.sh before they will download.
+
+llama:
+  - id: huggyllama/llama-7b          # LLaMA-1 7B, the model in upstream's run script
+    params_b: 6.74
+  - id: meta-llama/Llama-2-7b-hf     # Table 3's baseline: 35.80 / 22.95 on MMLU 0-shot
+    params_b: 6.74
+    gated: true
+  - id: meta-llama/Llama-2-7b-chat-hf
+    params_b: 6.74
+    gated: true
+
+vicuna:
+  - id: lmsys/vicuna-7b-v1.3         # LLaMA-1 fine-tune
+    params_b: 6.74
+  - id: lmsys/vicuna-7b-v1.5         # Llama-2 fine-tune
+    params_b: 6.74
+  - id: lmsys/vicuna-7b-v1.5-16k
+    params_b: 6.74
+
+falcon:
+  - id: tiiuae/falcon-7b
+    params_b: 7.22
+  - id: tiiuae/falcon-7b-instruct
+    params_b: 7.22
+  - id: tiiuae/falcon-rw-7b          # RefinedWeb only, ALiBi rather than RoPE
+    params_b: 7.50
+
+qwen2.5:
+  - id: Qwen/Qwen2.5-7B              # 152k vocab: keep batch <= 8
+    params_b: 7.62
+  - id: Qwen/Qwen2.5-7B-Instruct
+    params_b: 7.62
+  - id: Qwen/Qwen2.5-3B              # smallest in the set; use it for smoke tests
+    params_b: 3.09

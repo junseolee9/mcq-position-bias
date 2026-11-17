@@ -210,3 +210,39 @@ eight label-token ids are compared between the two and must agree; the result go
 `docs/upstream_notes.md` §6 per model. Where only a fast tokenizer exists (Falcon, Qwen), the
 single-token requirement for `' A'`/`'A'` is still checked before the model is run, since the
 8-id scoring scheme is undefined otherwise.
+
+## 2026-11-16 — Phase 4: batched inference, and `position_ids` under left padding
+
+Upstream runs batch size 1 under a thread pool (`eval_clm.py:82`,
+`eval_clm_utils.py:190-195`) and never pads. We batch, because the crossed design
+multiplies the number of forward passes. That is a numerical deviation in two
+distinct ways, and one of them was a real bug caught by the test rather than by
+reasoning:
+
+1. **Absolute positions.** With left padding and no explicit `position_ids`,
+   `forward()` defaults to `arange(seq_len)`, so every real token in a padded row
+   is shifted right by the pad count. On a GPT-2 model — learned absolute
+   position embeddings — this moved the label probabilities by up to 10% relative,
+   while the single unpadded row of the same batch matched batch size 1 exactly.
+   `score.py` now derives `position_ids` from the attention mask
+   (`cumsum - 1`, masked to 0 on pads) for any model whose `forward` accepts them;
+   OPT-style models compute positions from the mask themselves and take no such
+   argument. The twelve models we actually run use RoPE or ALiBi, where a constant
+   offset cancels, so they were never affected — but the fix costs two lines and
+   removes the question.
+2. **Reduction order.** Padding changes the order of the summations inside the
+   kernels, so bitwise equality is not expected. `tests/test_score.py` asserts
+   agreement with batch size 1 to `atol=1e-5` in float32 on CPU, and
+   `docs/reproduction.md` requires the same comparison on the real model and dtype
+   before any long run.
+
+Also recorded per run, beyond CLAUDE.md's schema: `model_revision` (the Hub
+snapshot hash actually loaded), `dtype` and `batch_size`. `docs/reproduction.md`
+names all three as candidate sources of difference from the released numbers, so
+they have to be in the data, not in a notebook.
+
+One stricter-than-upstream check: `score.label_tokens` refuses a tokenizer where
+`': X'` or `':X'` is not exactly one token past the colon's own encoding. Upstream
+would take `input_ids[-1]` regardless and silently score a fragment or a merged
+`':X'` token. This only differs on tokenizers where the 8-id scheme is undefined
+anyway, and all twelve models pass it.
