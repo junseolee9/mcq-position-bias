@@ -133,3 +133,80 @@ what "reproducing the baseline" means.
   inside the PriDe pipeline and consumes `perm`/`cyclic` probabilities
   (`debias_pride.py:152-154`). Phase 2 must compute the baseline RStd itself with
   upstream's recipe (per-gold-label recall, x100, `np.std`, `ddof=0`).
+
+## 2026-11-16 — Compute is Jetstream2, not an ACCESS JupyterLab node
+
+The Phase 0 entry above recorded "an A100 through an NSF ACCESS allocation accessed via
+JupyterLab". The actual machine is a Jetstream2 (OpenStack) instance named `mcq-team`, driven
+by a `js2` CLI wrapper, shared by five teammates:
+
+- Flavor `g3.medium` = **A100 10 GB vGPU slice** (8 vCPU, 30 GB RAM), 16 SU/h. Not a
+  dedicated A100 40 GB. `~1.3` GB of the slice is reserved, leaving ~8.7 GB usable.
+- The 60 GB root disk has ~11 GB free, and only `/workspace` survives shelving: it is the
+  volume `mcq-team-vol` (100 GB). Everything — venvs, HF cache, results — lives there.
+- Billing is per hour ACTIVE, so the instance is shelved (`js2 stop`) between runs. An idle
+  ACTIVE instance costs more than the runs do.
+- The allocation exposes `g3.medium` / `g3.large` / `g3.xl` only. There is no H100 flavor,
+  so nothing above 13B is reachable at bf16 on this project at all.
+
+Team budget is a hard 10,000 SU with no top-up, shared five ways.
+
+`scripts/setup_remote.sh` and the README's remote section were written for the JupyterLab
+assumption (`$SCRATCH`, a `.bashrc` export, an `ipykernel` registration) and are replaced.
+No reported number changes; what changes is the timing and SU accounting, and the model set
+below.
+
+## 2026-11-16 — Model set: 12 models on a 20 GB slice, varied by variant rather than size
+
+`CLAUDE.md` specifies `Llama-2-7b-hf`, `Llama-3.2-3B` and `Qwen2.5-7B` on one A100 40 GB. Two
+constraints replace that:
+
+1. bf16 on the 10 GB slice caps out near 3.5B parameters, so no 7B model loads at all. The
+   instance is resized once to `g3.large` (A100 20 GB slice, 18.7 GB usable, 32 SU/h), which
+   fits 7B but not 13B (26 GB).
+2. **Every family the paper evaluates has 7B as its smallest member.** From
+   `debias_pride.py:25-46`: LLaMA-1 7/13/30/65B, Llama-2 7/13/70B (+chat), Vicuna v1.3
+   7/13/33B, Vicuna v1.5 7/13B, Falcon 7/40B (+instruct), plus GPT-3.5 via API. There is no
+   sub-7B member anywhere in the paper's set, so a per-family *size* ladder is impossible
+   here — and Falcon's second size is 40B, so it stays single-size even on a 40 GB card.
+
+So the design varies **variant** within family instead of size, 4 families x 3 members:
+
+| Family | Members |
+|---|---|
+| Meta Llama | `huggyllama/llama-7b`, `meta-llama/Llama-2-7b-hf`, `meta-llama/Llama-2-7b-chat-hf` |
+| Vicuna | `lmsys/vicuna-7b-v1.3`, `lmsys/vicuna-7b-v1.5`, `lmsys/vicuna-7b-v1.5-16k` |
+| Falcon | `tiiuae/falcon-7b`, `tiiuae/falcon-7b-instruct`, `tiiuae/falcon-rw-7b` |
+| Qwen2.5 | `Qwen/Qwen2.5-7B`, `Qwen/Qwen2.5-7B-Instruct`, `Qwen/Qwen2.5-3B` |
+
+Ten of the twelve are the paper's own models. Two consequences worth stating:
+
+- The base-vs-instruction-tuned contrast is now a first-class axis. The paper evaluates
+  `Llama-2-chat` and `vicuna` but never separates what instruction tuning does to selection
+  bias, so this is a question our design answers and theirs does not.
+- Phase 2's reproduction target is inside the main run set, so no separate baseline run is
+  needed: `Llama-2-7b-hf` MMLU 0-shot `default` mode should land on the 35.80 / 22.95 we
+  already recovered from the released results (`docs/reproduction.md`).
+
+`CLAUDE.md` is left unedited, per ground rule 2; this entry is the record.
+
+## 2026-11-16 — Two venvs on the instance, and `use_fast=False` cannot hold for all models
+
+`transformers==4.36.2` (pinned above to the paper's era) cannot load Qwen2.5 — `Qwen2ForCausalLM`
+landed in 4.37. Falcon and Qwen also ship fast-only tokenizers (`tokenizer.json`, no
+sentencepiece model), so upstream's `AutoTokenizer.from_pretrained(..., use_fast=False)`
+(`eval_clm.py:51-54`) cannot be applied to all twelve models.
+
+Resolution, with the split kept explicit:
+
+- `/workspace/venv-upstream`, pinned at `requirements.txt`, exists only to run upstream's
+  `eval_clm.py` unmodified for the pipeline-equivalence check. `huggyllama/llama-7b` loads in
+  both environments, so it is the model used for that comparison.
+- `/workspace/venv`, modern `transformers`, runs our own `src/mcqbias/` code for all twelve
+  models.
+
+Where a model has both a slow and a fast tokenizer (the LLaMA and Vicuna checkpoints), the
+eight label-token ids are compared between the two and must agree; the result goes in
+`docs/upstream_notes.md` §6 per model. Where only a fast tokenizer exists (Falcon, Qwen), the
+single-token requirement for `' A'`/`'A'` is still checked before the model is run, since the
+8-id scoring scheme is undefined otherwise.

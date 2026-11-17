@@ -54,12 +54,12 @@ Two machines, deliberately split:
 
 | | Local (dev) | Remote (runs) |
 |---|---|---|
-| Hardware | macOS arm64, no NVIDIA GPU | A100, NSF ACCESS allocation via JupyterLab |
-| Python | 3.11 (Homebrew) | 3.11 from the node |
+| Hardware | macOS arm64, no NVIDIA GPU | Jetstream2 instance `mcq-team`, A100 vGPU slice |
+| Python | 3.11 (Homebrew) | 3.11 via `uv`, on the volume |
 | Used for | code, tests, analysis of downloaded results | all model inference |
 
-All reported numbers come from the remote A100. The local machine runs `pytest`
-and `analyze.py` only; `torch` resolves to a CPU/MPS wheel there and must not be
+All reported numbers come from `mcq-team`. The local machine runs `pytest` and
+`analyze.py` only; `torch` resolves to a CPU/MPS wheel there and must not be
 used to produce results.
 
 ### Local setup
@@ -70,31 +70,68 @@ used to produce results.
 .venv/bin/python -m pytest
 ```
 
-### Remote setup (A100 / JupyterLab)
+### Remote: the `mcq-team` instance
 
-From a JupyterLab **terminal** on the GPU node:
+Jetstream2 (NSF ACCESS OpenStack), driven by the `js2` helper. The instance is
+**shared by five teammates** and the team has a hard cap of 10,000 SU with no
+top-up, so:
 
-```bash
-git clone --recurse-submodules <this repo> && cd mcq-position-bias
-bash scripts/setup_remote.sh
-.venv/bin/huggingface-cli login    # gated Llama models
-```
+| | |
+|---|---|
+| Instance | `mcq-team` (never launch another; `kill` / `finish` / `vol delete` need the team's say-so) |
+| Flavor | `g3.large` = A100 20 GB vGPU slice, 18.7 GB usable, **32 SU/h** (was `g3.medium`, 10 GB / 16 SU/h — too small for 7B) |
+| Volume | `mcq-team-vol`, 100 GB, mounted at `/workspace`; the only storage that survives shelving |
+| Repo path | `/workspace/mcq-position-bias` (pinned in `.js2.conf`) |
 
-The script keeps the Hugging Face cache on `$SCRATCH` (ACCESS home quotas are
-too small for model weights), writes the exact installed versions to
-`docs/requirements.remote.lock.txt`, registers a `mcqbias (venv)` Jupyter
-kernel, and prints the visible GPUs. Set `SCRATCH` yourself if your site names
-the large filesystem differently.
-
-Long runs should be started from a JupyterLab terminal with `nohup`, not from a
-notebook cell — the kernel is reclaimed when the browser session ends:
+Billing runs while the instance is ACTIVE, not while it is computing, so an idle
+instance is the most expensive thing in the project. Shelve it the moment a run
+finishes — after checking that nobody else's job is live:
 
 ```bash
-nohup .venv/bin/python -m mcqbias.run_eval --config configs/<run>.yaml \
-  > results/raw/<run>.log 2>&1 &
+js2 ssh mcq-team 'tmux ls'     # someone else's session? leave it running
+js2 stop mcq-team              # shelve: free, ~30 s
 ```
+
+Bootstrap, once per volume:
+
+```bash
+js2 start mcq-team                      # unshelve, remounts /workspace
+js2 push-code mcq-team                  # source files only, verified by checksum
+js2 ssh mcq-team 'bash /workspace/mcq-position-bias/scripts/setup_remote.sh'
+```
+
+`setup_remote.sh` clones the upstream submodule on the instance (`push-code`
+sends source extensions only, so the task CSVs never arrive that way), keeps the
+Hugging Face cache at `/workspace/hf`, and builds **two** environments:
+`/workspace/venv-upstream` pinned to `requirements.txt` for running upstream's
+`eval_clm.py` unmodified, and `/workspace/venv` on modern `transformers` for our
+own code, because `transformers==4.36.2` cannot load Qwen2.5. Both lock files are
+written back into `docs/`.
+
+Gated `meta-llama/*` checkpoints need a token in `/workspace/env.sh`
+(`echo 'export HF_TOKEN=hf_...' >> /workspace/env.sh`) — outside the repo, never
+committed.
+
+Anything over ten minutes runs in `tmux`, tee'd to a log on the volume:
+
+```bash
+js2 ssh mcq-team
+source /workspace/env.sh
+cd /workspace/mcq-position-bias
+tmux new -s run
+/workspace/venv/bin/python -m mcqbias.run_eval --config configs/<run>.yaml \
+  2>&1 | tee results/raw/<run>.log
+```
+
+Then `js2 pull-results mcq-team` brings the parquet and logs back. Code goes up,
+results come down, never the reverse.
 
 ## Status
 
-Phase 0 (setup) complete. Next: Phase 1, read upstream and write
-`docs/upstream_notes.md`.
+Phases 0–1 complete, plus a zero-GPU pilot on the authors' released results
+(`docs/pilot_released_data.md`) that already finds a position effect larger than
+the effect of an option being correct. Table 3's baseline is identified and our
+RStd recipe is validated against it (`docs/reproduction.md`).
+
+Next: Phase 3 — `data.py`, `rotate.py`, `prompts.py` and their tests, all
+local. The GPU is only needed from Phase 4 onward.
