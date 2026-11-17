@@ -58,3 +58,21 @@ def test_invalid_item_counts(
 
 def test_mmlu_has_57_subjects():
     assert len(glob.glob(str(UPSTREAM_CODE / "data_mmlu/test/*_test.csv"))) == 57
+
+
+def test_our_copy_of_the_filter_lists_matches_upstream(upstream_filters):
+    """src/mcqbias/data.py copies these lists instead of importing them."""
+    from mcqbias.data import BAD_OPTIONS, REFER_OPTIONS
+
+    assert (BAD_OPTIONS, REFER_OPTIONS) == upstream_filters
+
+
+def test_our_loader_reproduces_the_paper_s_filtered_population():
+    from mcqbias.data import load
+
+    for task, expect_total, expect_dropped in (("mmlu", 14042, 450), ("arc", 1165, 0)):
+        kept, dropped = load(task)
+        assert (len(kept) + dropped, dropped) == (expect_total, expect_dropped)
+        # gold always points at a real option, and qids are unique
+        assert all(0 <= q.gold_index < 4 for q in kept)
+        assert len({q.qid for q in kept}) == len(kept)
