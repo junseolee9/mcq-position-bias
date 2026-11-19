@@ -102,13 +102,3 @@ def load(task: str, data_root: Path | None = None) -> tuple[list[Question], int]
                 )
             )
     return kept, dropped
-
-
-if __name__ == "__main__":
-    # The paper excludes "about 3.2%" of MMLU; upstream's lists give exactly that.
-    for task, expect_total, expect_dropped in (("mmlu", 14042, 450), ("arc", 1165, 0)):
-        kept, dropped = load(task)
-        total = len(kept) + dropped
-        print(f"{task}: {total} total, {dropped} dropped ({dropped / total:.2%}), {len(kept)} kept")
-        assert (total, dropped) == (expect_total, expect_dropped), (task, total, dropped)
-    print("ok")

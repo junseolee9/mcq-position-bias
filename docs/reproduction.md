@@ -54,21 +54,38 @@ our rotation design is meant to decompose.
 
 ## Our own run
 
-Pending — requires the A100. Target: land on **35.80 / 22.95** for
+Pending — requires the GPU. Target: land on **35.80 / 22.95** for
 `meta-llama/Llama-2-7b-hf`, MMLU 0-shot, default order, filtered population,
 using our `default` mode.
 
-Per ground rule 3, nothing gets tuned to close a gap. Any difference is recorded
-here with its likely cause. Known candidate sources of difference, written down
-before the run so they cannot be invented afterwards:
+This is no longer a separate baseline run. `Llama-2-7b-hf` is one of the twelve
+models in the main run set (`configs/models.yaml`), so its `default` condition —
+which every model gets as the control — *is* the reproduction. If it lands on
+35.80 / 22.95 the pipeline is validated on the paper's own number; if it does
+not, the gap is recorded here with its cause and nothing is tuned to close it
+(ground rule 3).
+
+Known candidate sources of difference, written down before the run so they
+cannot be invented afterwards. The first three are now recorded as columns in
+every parquet file rather than left to memory:
 
 - Weights: the released run used whatever `${HF_MODELS}/Llama-2-7b-hf` snapshot
-  the authors had in 2023; we get the current Hub revision. Record the commit
-  hash of the snapshot we download.
+  the authors had in 2023; we get the current Hub revision. → `model_revision`.
 - dtype: upstream picks bf16 when `torch.cuda.is_bf16_supported()`, else fp16.
-  On an A100 that is bf16. Record what the run actually used.
-- Batching: upstream runs batch size 1 under a thread pool. If we batch, padding
-  and reduction order change the logits slightly. Phase 4 must verify batched
-  output against batch size 1 on the same questions before any full run.
-- `device_map='auto'` shards across visible GPUs; the number of GPUs can change
-  reduction order. Record the GPU count.
+  On an A100 slice that is bf16. → `dtype`.
+- Batching: upstream runs batch size 1 under a thread pool. → `batch_size`.
+  Padding and reduction order change the logits slightly, and left padding also
+  shifts absolute positions, which was a real bug before `score.py` started
+  deriving `position_ids` from the attention mask (`docs/deviations.md`,
+  2026-11-16). Batched output must still be verified against batch size 1 on the
+  same questions, on the real model and dtype, before any full run.
+- Thread pool and GPU count: upstream sets `threads=torch.cuda.device_count()`
+  and `device_map='auto'` shards across visible GPUs, which can change reduction
+  order. The Jetstream2 flavors here expose a single vGPU slice, so there is one
+  device and no sharding — a difference from the authors' multi-GPU setup that
+  removes a source of variation rather than adding one.
+
+The separate check that our port has not drifted from upstream is the
+pipeline-equivalence run: upstream's unmodified `eval_clm.py` against our
+`default` mode on the same questions with `huggyllama/llama-7b`, which loads
+under both the pinned `transformers==4.36.2` and current releases.
