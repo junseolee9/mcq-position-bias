@@ -44,13 +44,31 @@ def _load(model_id, model=False):
         pytest.skip(f"{model_id} unavailable: {type(exc).__name__}: {exc}")
 
 
-def test_llama_label_tokens_match_the_recorded_ids():
-    """docs/upstream_notes.md §6 — pinned so a tokenizer change cannot pass silently."""
-    toker = _load(LLAMA)
-    tokens = label_tokens(toker)
+SENTENCEPIECE_IDS = [319, 350, 315, 360, 29909, 29933, 29907, 29928]
+
+
+@pytest.mark.parametrize(
+    "model_id",
+    [
+        LLAMA,
+        "meta-llama/Llama-2-7b-hf",  # gated; skips without access
+        "meta-llama/Llama-2-7b-chat-hf",
+        "lmsys/vicuna-7b-v1.3",
+        "lmsys/vicuna-7b-v1.5",
+        "lmsys/vicuna-7b-v1.5-16k",
+    ],
+)
+def test_llama_family_label_tokens_match_the_recorded_ids(model_id):
+    """docs/upstream_notes.md §6 — pinned so a tokenizer change cannot pass silently.
+
+    All six share the 32000-piece sentencepiece vocabulary, so the Table 3
+    reproduction and the LLaMA-1 run score the same eight ids and any difference
+    between them is the model rather than the scoring.
+    """
+    tokens = label_tokens(_load(model_id))
     assert tokens.has_space_prefix is True
     assert tokens.needs_trailing_space is False
-    assert tokens.ids == [319, 350, 315, 360, 29909, 29933, 29907, 29928]
+    assert tokens.ids == SENTENCEPIECE_IDS
 
 
 def test_label_tokens_rejects_a_label_that_is_not_one_token():
