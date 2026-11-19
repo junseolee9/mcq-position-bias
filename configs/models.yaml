@@ -1,56 +1,68 @@
-# The run set: 4 families x 3 members, all 7B-class so they fit the 20 GB A100
-# slice (18.7 GB usable) in bf16. Ten of the twelve are the paper's own models
-# (debias_pride.py:25-46). Every family in the paper has 7B as its *smallest*
-# member, so the axis within a family is variant, not size — see
-# docs/deviations.md, 2026-11-16.
+# The run set: 4 families x 3 members, sized for the full A100 40 GB (g3.xl,
+# ~38.7 GB usable) in bf16. Ten of the twelve are the paper's own models
+# (debias_pride.py:25-46). See docs/deviations.md, 2026-11-19.
+#
+# 40 GB puts the 13B tier in reach, so three of the four families carry a size
+# step - a question the earlier 20 GB plan could not ask at all, since every
+# family in the paper has 7B as its smallest member. LLaMA-1 cannot be its own
+# family (its next size is 30B = 60 GB), so Meta Llama spans both generations.
+#
+# The instruction-tuning axis costs no slot: vicuna-7b-v1.3 is a fine-tune of
+# llama-7b and vicuna-7b-v1.5 is a fine-tune of Llama-2-7b, so families 1 and 2
+# pair up into two matched base/tuned comparisons, and Falcon carries a third.
+#
+# Tokenizers deliberately differ - 32k sentencepiece, 65k BPE, 152k BPE. The
+# paper's claim is about *token* bias, so a single tokenizer family could not
+# separate a tokenizer artefact from a general label preference.
 #
 # `gated` models need HF_TOKEN in /workspace/env.sh before they will download.
-# `batch_size` is a starting point for the 20 GB slice, not a hard limit: logits
-# are computed at every position, so the cost scales with vocabulary, and an
-# out-of-memory error halves the batch and retries rather than killing the run.
+# One Llama-2 approval covers the whole collection (verified 2026-11-19).
+# `batch_size` is a starting point, not a hard limit: logits are computed at
+# every position, so the cost scales with vocabulary, and an out-of-memory error
+# halves the batch and retries rather than killing the run.
 
 llama:
-  - id: huggyllama/llama-7b          # LLaMA-1 7B, the model in upstream's run script
+  - id: huggyllama/llama-7b          # LLaMA-1 7B; the pilot's strongest case, position span 0.81 vs label 0.91
     params_b: 6.74
-    batch_size: 16
+    batch_size: 32
   - id: meta-llama/Llama-2-7b-hf     # Table 3's baseline: 35.80 / 22.95 on MMLU 0-shot
     params_b: 6.74
     gated: true
-    batch_size: 16
-  - id: meta-llama/Llama-2-7b-chat-hf
-    params_b: 6.74
+    batch_size: 32
+  - id: meta-llama/Llama-2-13b-hf
+    params_b: 13.02
     gated: true
     batch_size: 16
 
 vicuna:
-  - id: lmsys/vicuna-7b-v1.3         # LLaMA-1 fine-tune
+  - id: lmsys/vicuna-7b-v1.3         # fine-tune of llama-7b
     params_b: 6.74
-    batch_size: 16
-  - id: lmsys/vicuna-7b-v1.5         # Llama-2 fine-tune
+    batch_size: 32
+  - id: lmsys/vicuna-7b-v1.5         # fine-tune of Llama-2-7b
     params_b: 6.74
-    batch_size: 16
-  - id: lmsys/vicuna-7b-v1.5-16k
-    params_b: 6.74
+    batch_size: 32
+  - id: lmsys/vicuna-13b-v1.5
+    params_b: 13.02
     batch_size: 16
 
 falcon:
-  - id: tiiuae/falcon-7b
+  - id: tiiuae/falcon-7b             # 65k vocab
     params_b: 7.22
-    batch_size: 16
+    batch_size: 32
   - id: tiiuae/falcon-7b-instruct
     params_b: 7.22
-    batch_size: 16
+    batch_size: 32
   - id: tiiuae/falcon-rw-7b          # RefinedWeb only, ALiBi rather than RoPE
     params_b: 7.50
-    batch_size: 16
+    batch_size: 32
 
 qwen2.5:
-  - id: Qwen/Qwen2.5-7B              # 152k vocab, so the logits are ~76 MB per item
-    params_b: 7.62
-    batch_size: 8
-  - id: Qwen/Qwen2.5-7B-Instruct
-    params_b: 7.62
-    batch_size: 8
-  - id: Qwen/Qwen2.5-3B              # smallest in the set; use it for smoke tests
+  - id: Qwen/Qwen2.5-3B              # 152k vocab, so the logits are ~76 MB per item
     params_b: 3.09
     batch_size: 32
+  - id: Qwen/Qwen2.5-7B
+    params_b: 7.62
+    batch_size: 16
+  - id: Qwen/Qwen2.5-14B
+    params_b: 14.77
+    batch_size: 8

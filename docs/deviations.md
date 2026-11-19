@@ -279,3 +279,67 @@ silent: shard files were numbered by *counting* the existing shards, so as soon
 as the indices were not contiguous — after discarding an unreadable shard, or on
 any resume — every later flush overwrote the same file and most of the run's
 output was lost. Numbering is now `max(index) + 1`.
+
+## 2026-11-19 — Flavor g3.xl, and the run set regains a size axis
+
+Two findings forced this, one practical and one about what the design can ask.
+
+**The 10 GB slice could not be brought back up at all.** `js2 start mcq-team`
+hung, and the instance's own event log says why: `schedule_instances` succeeded,
+then `compute_unshelve_instance` returned `Error` after three minutes and the
+instance fell back to `SHELVED_OFFLOADED`. The flavor's `extra_specs` carry
+`pci_passthrough:alias: A100X_10C:1`, so the scheduler found a host advertising
+the 10 GB vGPU profile and the compute node then failed to claim the device.
+Jetstream2 hides the traceback from tenants. The instance history shows
+back-to-back unshelve attempts on 2026-11-17 as well, so this is not new.
+The resize path (`openstack server resize`) requires an unshelved instance and
+was therefore unreachable; the instance is recreated instead, which schedules
+fresh rather than restoring a shelved image.
+
+**Moving to `g3.xl` changes the experiment, not just the hardware.** It is a full
+A100 40 GB (~38.7 GB usable, 32 vCPU, 117 GB RAM, 64 SU/h) rather than a vGPU
+slice, so the 13B tier fits. The 20 GB plan recorded above had to vary *variant*
+within a family because every family in the paper has 7B as its smallest member;
+at 40 GB three of the four families carry a size step, and "does the bias shrink
+with scale" becomes a question we can ask instead of one we had to drop.
+
+The set is still 4 families x 3 members:
+
+| Family | Members | Within-family axis |
+|---|---|---|
+| Meta Llama | `huggyllama/llama-7b`, `Llama-2-7b-hf`, `Llama-2-13b-hf` | generation + size |
+| Vicuna | `vicuna-7b-v1.3`, `vicuna-7b-v1.5`, `vicuna-13b-v1.5` | base generation + size |
+| Falcon | `falcon-7b`, `falcon-7b-instruct`, `falcon-rw-7b` | variant + pretraining data |
+| Qwen2.5 | `Qwen2.5-3B`, `-7B`, `-14B` | size, three points |
+
+LLaMA-1 cannot be its own family because its next size is 30B (60 GB), so Meta
+Llama spans both generations, as in the 20 GB plan.
+
+Three properties worth stating, since they are why these twelve and not others:
+
+- **The instruction-tuning axis costs no slot.** `vicuna-7b-v1.3` is a fine-tune
+  of `llama-7b` and `vicuna-7b-v1.5` of `Llama-2-7b`, so families 1 and 2 pair
+  into two matched base/tuned comparisons at identical size, and Falcon carries a
+  third. Spending slots on `Llama-2-*-chat-hf` would have bought a more direct
+  RLHF contrast at the cost of the size axis; that is the first thing to add if
+  the set ever grows past twelve.
+- **Tokenizers differ on purpose**: 32k sentencepiece (6 models), 65k BPE (3),
+  152k BPE (3). The paper's claim is about token bias, and a set sharing one
+  tokenizer could not separate a tokenizer artefact from a general label
+  preference.
+- **Both load-bearing models from earlier work survive**: `llama-7b`, where the
+  pilot found a position span of 0.81 against a label span of 0.91, and
+  `Llama-2-7b-hf`, whose `default` condition is the Table 3 reproduction.
+
+**Cost.** Parameter sum 100.4B against 80.6B for the 20 GB set, so 1.25x the
+compute at the same 75,028 passes per model: 3,314 PFLOP, about 1,055 SU
+realistically and 1,685 SU worst case against the team's 10,000 cap. The flavor
+itself is close to cost-neutral — twice the rate, roughly twice the throughput —
+so the increase comes from running 13B and 14B models. Weights now total 201 GB
+against a 100 GB volume, so `run_sweep.py`'s eviction is mandatory rather than
+tidy; the largest single checkpoint, `Qwen2.5-14B` at 29.6 GB, fits alone.
+
+**Access.** Only the two `meta-llama` repos are gated (`gated: manual`, reviewed
+per account). One Llama-2 approval covers the collection: verified on
+2026-11-19 that the same token reaches `Llama-2-7b-hf`, `-7b-chat-hf`,
+`-13b-hf` and `-13b-chat-hf`. No further requests are needed for this set.

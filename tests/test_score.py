@@ -55,15 +55,17 @@ SENTENCEPIECE_IDS = [319, 350, 315, 360, 29909, 29933, 29907, 29928]
         "meta-llama/Llama-2-7b-chat-hf",
         "lmsys/vicuna-7b-v1.3",
         "lmsys/vicuna-7b-v1.5",
-        "lmsys/vicuna-7b-v1.5-16k",
+        "meta-llama/Llama-2-13b-hf",
+        "lmsys/vicuna-13b-v1.5",
     ],
 )
 def test_llama_family_label_tokens_match_the_recorded_ids(model_id):
     """docs/upstream_notes.md §6 — pinned so a tokenizer change cannot pass silently.
 
-    All six share the 32000-piece sentencepiece vocabulary, so the Table 3
-    reproduction and the LLaMA-1 run score the same eight ids and any difference
-    between them is the model rather than the scoring.
+    Every Llama-derived checkpoint shares the 32000-piece sentencepiece
+    vocabulary, 13B included. That is what makes the two comparisons the design
+    rests on clean: Table 3's reproduction against the LLaMA-1 run, and 7B
+    against 13B within a family. Neither can differ because of the tokenizer.
     """
     tokens = label_tokens(_load(model_id))
     assert tokens.has_space_prefix is True

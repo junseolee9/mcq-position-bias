@@ -238,23 +238,29 @@ trailing space is appended to the prompt.
 |---|---|---|---|
 | `huggyllama/llama-7b` | `LlamaTokenizer` | True | 319, 350, 315, 360, 29909, 29933, 29907, 29928 |
 | `meta-llama/Llama-2-7b-hf` | `LlamaTokenizer` | True | same as above |
-| `meta-llama/Llama-2-7b-chat-hf` | `LlamaTokenizer` | True | same as above |
+| `meta-llama/Llama-2-13b-hf` | `LlamaTokenizer` | True | same as above |
 | `lmsys/vicuna-7b-v1.3` | `LlamaTokenizer` | True | same as above |
 | `lmsys/vicuna-7b-v1.5` | `LlamaTokenizer` | True | same as above |
-| `lmsys/vicuna-7b-v1.5-16k` | `LlamaTokenizer` | True | same as above |
+| `lmsys/vicuna-13b-v1.5` | `LlamaTokenizer` | True | same as above |
 | `tiiuae/falcon-7b` | `PreTrainedTokenizerFast` | True | 317, 341, 319, 361, 44, 45, 46, 47 |
 | `tiiuae/falcon-7b-instruct` | `PreTrainedTokenizerFast` | True | same as above |
 | `tiiuae/falcon-rw-7b` | `PreTrainedTokenizerFast` | True | same as above |
-| `Qwen/Qwen2.5-7B` / `-7B-Instruct` / `-3B` | not loadable here | — | re-run in `/workspace/venv` |
+| `Qwen/Qwen2.5-3B` / `-7B` / `-14B` | not loadable here | — | re-run in `/workspace/venv` |
+
+Also measured, outside the run set: `meta-llama/Llama-2-7b-chat-hf`,
+`-13b-chat-hf` and `lmsys/vicuna-7b-v1.5-16k` all return the same eight ids. So
+every Llama-derived checkpoint we considered shares one vocabulary, 13B included.
 
 Three things this settles:
 
-1. **Nine of the twelve share one id set.** The two `meta-llama` repos are gated
-   (`gated: manual` on the Hub, so Meta reviews each request per account) and were
-   measured directly once access was granted, rather than inferred from
-   `vicuna-7b-v1.5` being a Llama-2 fine-tune. They match the LLaMA-1 row exactly,
-   which also means the Phase 2 reproduction and the LLaMA-1 run score the same
-   eight token ids and any difference between them is the model, not the scoring.
+1. **Six of the twelve share one id set, and so does every Llama variant we
+   checked.** The two `meta-llama` repos are gated (`gated: manual` on the Hub, so
+   Meta reviews each request per account) and were measured directly once access
+   was granted, rather than inferred from `vicuna-7b-v1.5` being a Llama-2
+   fine-tune. The 13B checkpoints match the 7B ones exactly, which matters for the
+   size axis: a difference between `Llama-2-7b-hf` and `Llama-2-13b-hf` cannot come
+   from the tokenizer. The same holds for the Table 3 reproduction against the
+   LLaMA-1 run.
 2. **`use_fast=False` is silently ignored for Falcon**: it returns
    `PreTrainedTokenizerFast` because no slow Falcon tokenizer exists. Upstream's
    convention cannot be honoured for every model in our set, which is why the
