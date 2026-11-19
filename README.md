@@ -118,13 +118,41 @@ Anything over ten minutes runs in `tmux`, tee'd to a log on the volume:
 js2 ssh mcq-team
 source /workspace/env.sh
 cd /workspace/mcq-position-bias
-tmux new -s run
-/workspace/venv/bin/python -m mcqbias.run_eval --config configs/<run>.yaml \
-  2>&1 | tee results/raw/<run>.log
+tmux new -s sweep
+/workspace/venv/bin/python scripts/run_sweep.py --plan     # costs nothing
+/workspace/venv/bin/python scripts/run_sweep.py 2>&1 | tee results/raw/sweep.log
 ```
 
 Then `js2 pull-results mcq-team` brings the parquet and logs back. Code goes up,
 results come down, never the reverse.
+
+## The sweep
+
+`scripts/run_sweep.py` runs every model in `configs/models.yaml` over every
+condition in `configs/sweep.yaml` — 9 runs and 75,028 forward passes per model,
+900,336 across the twelve. `--plan` prints the whole schedule and what is
+already on disk without loading anything.
+
+It is built to survive a dropped SSH session, since the instance is billed by
+the hour and a run that has to be repeated costs twice:
+
+- Rows are flushed to `*.part-NNNNN.parquet` shards as they are produced, and
+  merged into the run file at the end. A run killed at 60k of 68k passes keeps
+  its 60k.
+- Resume is keyed on `(qid, version)` read back from those shards, so rerunning
+  the same command continues where it stopped. A shard truncated by a hard kill
+  is detected and discarded rather than trusted.
+- A finished run is skipped by its output file, and a model whose runs are all
+  finished is never downloaded.
+- An out-of-memory error halves the batch and retries, as upstream does.
+  `batch_size` in `configs/models.yaml` is a starting point, not a limit.
+- Each model is loaded once for all nine of its runs, and its weights are
+  deleted after the last one — twelve 7B checkpoints are 168 GB and the volume
+  is 100 GB. `--no-evict` keeps them.
+
+Useful flags: `--families`, `--models`, `--n-questions` (cap every run, for a
+smoke test over the real sweep path), `--keep-going` (log a failure and continue
+to the next model).
 
 ## Status
 

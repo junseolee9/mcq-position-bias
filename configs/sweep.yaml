@@ -1,0 +1,40 @@
+# What every model in configs/models.yaml gets run on.
+#
+# `balanced1` over the whole filtered population carries the headline numbers:
+# the pilot showed it is as precise as `full16` at 1/16 the cost, because the
+# conditional logit identifies label and position *within* a choice set of four,
+# so its precision tracks forward passes rather than versions per question
+# (docs/pilot_released_data.md §5).
+#
+# `full16` is kept on a subset because it is the only design that puts every
+# label at every position for the *same* question, which is the within-question
+# robustness check. It has no seed variance by construction - every question
+# gets all 16 versions - so its error bars must come from the question bootstrap,
+# not from seeds.
+#
+# `default` is the paper's untouched A B C D order, our control. For
+# Llama-2-7b-hf it is also the reproduction of Table 3's 35.80 / 22.95.
+#
+# 75,028 forward passes per model, 900,336 across the twelve.
+
+runs:
+  - dataset: mmlu
+    mode: default
+    seeds: [0]
+
+  - dataset: mmlu
+    mode: balanced1
+    seeds: [0, 1, 2]
+
+  - dataset: mmlu
+    mode: full16
+    n_questions: 1000
+    seeds: [0]
+
+  - dataset: arc
+    mode: default
+    seeds: [0]
+
+  - dataset: arc
+    mode: balanced1
+    seeds: [0, 1, 2]

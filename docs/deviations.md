@@ -246,3 +246,36 @@ One stricter-than-upstream check: `score.label_tokens` refuses a tokenizer where
 would take `input_ids[-1]` regardless and silently score a fragment or a merged
 `':X'` token. This only differs on tokenizers where the 8-id scheme is undefined
 anyway, and all twelve models pass it.
+
+## 2026-11-18 — Phase 6 plumbing: truncation clamp, OOM retry, resume
+
+None of this changes what the model is shown; it is recorded because two of the
+three were found by a failure rather than by reading, and because the first
+touches the prompt.
+
+**Truncation is clamped to what the model can address.** Upstream hardcodes
+`input_ids[..., -1536:]` (`eval_clm_utils.py:191`), which is safe for its own
+models since LLaMA-1 addresses 2048 positions. `score.max_input_tokens` takes
+`min(1536, max_position_embeddings)` instead. For all twelve models in our run
+set this returns exactly **1536**, so the prompt is upstream's and nothing is
+deviating; `tests/test_score.py` pins that by reading every config in
+`configs/models.yaml`. The clamp exists because a model with a shorter context
+does not truncate, it raises `IndexError: index out of range in self` inside its
+position embedding — which is how it was found, running the sweep end to end on
+a 512-position test model.
+
+**Out of memory halves the batch and retries**, which is what upstream does on
+`RuntimeError` (`utils.py:185-192`). The per-model `batch_size` in
+`configs/models.yaml` is a starting point sized for the 20 GB slice: logits are
+computed at every position, so the cost scales with vocabulary, and Qwen2.5's
+152k vocabulary makes an item roughly five times more expensive than LLaMA's 32k
+one. The batch size actually in force is recorded per row, so a run that halved
+mid-way is visible in the data rather than only in the log.
+
+**Results are flushed to shards and runs resume on `(qid, version)`.** Holding
+68k rows in memory and writing once at the end meant a dropped SSH session cost
+the whole run, and the instance is billed by the hour. One bug here was real and
+silent: shard files were numbered by *counting* the existing shards, so as soon
+as the indices were not contiguous — after discarding an unreadable shard, or on
+any resume — every later flush overwrote the same file and most of the run's
+output was lost. Numbering is now `max(index) + 1`.

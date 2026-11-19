@@ -74,6 +74,25 @@ def _accepts_position_ids(model) -> bool:
     return "position_ids" in inspect.signature(model.forward).parameters
 
 
+def max_input_tokens(model) -> int:
+    """Upstream's 1536-token tail, but never past what the model can address.
+
+    Upstream hardcodes 1536 (eval_clm_utils.py:191), which is safe for its own
+    models: LLaMA-1 is 2048. Every model in our run set is 2048 or more, so this
+    returns exactly 1536 for all twelve and the prompt is upstream's. The clamp
+    exists because a model with a shorter context raises
+    `IndexError: index out of range in self` inside its position embedding
+    instead of truncating, which is how it was found.
+    """
+    config = getattr(model, "config", None)
+    limits = [
+        getattr(config, name, None)
+        for name in ("max_position_embeddings", "n_positions", "seq_length")
+    ]
+    limits = [n for n in limits if isinstance(n, int) and n > 0]
+    return min([MAX_INPUT_TOKENS, *limits])
+
+
 @torch.no_grad()
 def score(model, tokenizer, prompts: list[str], tokens: LabelTokens):
     """Return an (n_prompts, n_labels) array of label probabilities.
@@ -103,9 +122,10 @@ def score(model, tokenizer, prompts: list[str], tokens: LabelTokens):
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
 
+    limit = max_input_tokens(model)
     batch = tokenizer(prompts, return_tensors="pt", padding=True)
-    input_ids = batch.input_ids[..., -MAX_INPUT_TOKENS:].to(model.device)
-    attention_mask = batch.attention_mask[..., -MAX_INPUT_TOKENS:].to(model.device)
+    input_ids = batch.input_ids[..., -limit:].to(model.device)
+    attention_mask = batch.attention_mask[..., -limit:].to(model.device)
 
     kwargs = {}
     if _accepts_position_ids(model):

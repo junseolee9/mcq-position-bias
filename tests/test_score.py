@@ -12,7 +12,7 @@ run against the real LLaMA tokenizer that upstream used.
 import numpy as np
 import pytest
 
-from mcqbias.score import LABELS, label_tokens, score
+from mcqbias.score import MAX_INPUT_TOKENS, LABELS, label_tokens, max_input_tokens, score
 
 TINY = "hf-internal-testing/tiny-random-gpt2"
 LLAMA = "huggyllama/llama-7b"  # tokenizer only, ungated, the model in upstream's run script
@@ -85,3 +85,61 @@ def test_probabilities_are_a_distribution_over_the_four_labels():
     probs = score(model, toker, PROMPTS, label_tokens(toker))
     np.testing.assert_allclose(probs.sum(axis=1), 1.0, atol=1e-6)
     assert (probs >= 0).all()
+
+
+class _Cfg:
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+class _Model:
+    def __init__(self, **kw):
+        self.config = _Cfg(**kw)
+
+
+def test_truncation_is_upstreams_1536_for_every_real_model():
+    """Each model in the run set is 2048 ctx or more, so the prompt is upstream's."""
+    for ctx in (2048, 4096, 16384, 32768):
+        assert max_input_tokens(_Model(max_position_embeddings=ctx)) == MAX_INPUT_TOKENS
+
+
+def test_truncation_never_exceeds_a_short_context():
+    """A model that cannot address 1536 positions raises IndexError inside its
+    position embedding rather than truncating, so the limit is clamped."""
+    assert max_input_tokens(_Model(n_positions=512)) == 512
+    assert max_input_tokens(_Model(max_position_embeddings=512, n_positions=512)) == 512
+    # a config that advertises nothing falls back to upstream's value
+    assert max_input_tokens(_Model()) == MAX_INPUT_TOKENS
+    assert max_input_tokens(_Model(max_position_embeddings=None)) == MAX_INPUT_TOKENS
+
+
+def test_real_run_set_contexts_all_clear_the_cap():
+    """Guards the claim above against a config change in any of the twelve.
+
+    Skipping is per model, not for the whole test: the gated repos need a token
+    and Qwen2.5 needs transformers >= 4.37, so under the pinned environment some
+    entries are simply not loadable here. The ones that are must still be
+    checked, and the test fails if none were.
+    """
+    from pathlib import Path
+
+    transformers = pytest.importorskip("transformers")
+    yaml = pytest.importorskip("yaml")
+
+    repo = Path(__file__).resolve().parents[1]
+    models = yaml.safe_load((repo / "configs/models.yaml").read_text())
+    checked, unavailable = {}, {}
+    for family in models.values():
+        for entry in family:
+            try:
+                cfg = transformers.AutoConfig.from_pretrained(entry["id"])
+            except Exception as exc:
+                unavailable[entry["id"]] = type(exc).__name__
+                continue
+            ctx = getattr(cfg, "max_position_embeddings", None) or getattr(cfg, "n_positions", 0)
+            checked[entry["id"]] = ctx
+
+    if not checked:
+        pytest.skip(f"no model config loadable here: {unavailable}")
+    too_short = {m: ctx for m, ctx in checked.items() if ctx < MAX_INPUT_TOKENS}
+    assert not too_short, f"these cannot address upstream's 1536 positions: {too_short}"

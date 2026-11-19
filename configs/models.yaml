@@ -5,37 +5,52 @@
 # docs/deviations.md, 2026-11-16.
 #
 # `gated` models need HF_TOKEN in /workspace/env.sh before they will download.
+# `batch_size` is a starting point for the 20 GB slice, not a hard limit: logits
+# are computed at every position, so the cost scales with vocabulary, and an
+# out-of-memory error halves the batch and retries rather than killing the run.
 
 llama:
   - id: huggyllama/llama-7b          # LLaMA-1 7B, the model in upstream's run script
     params_b: 6.74
+    batch_size: 16
   - id: meta-llama/Llama-2-7b-hf     # Table 3's baseline: 35.80 / 22.95 on MMLU 0-shot
     params_b: 6.74
     gated: true
+    batch_size: 16
   - id: meta-llama/Llama-2-7b-chat-hf
     params_b: 6.74
     gated: true
+    batch_size: 16
 
 vicuna:
   - id: lmsys/vicuna-7b-v1.3         # LLaMA-1 fine-tune
     params_b: 6.74
+    batch_size: 16
   - id: lmsys/vicuna-7b-v1.5         # Llama-2 fine-tune
     params_b: 6.74
+    batch_size: 16
   - id: lmsys/vicuna-7b-v1.5-16k
     params_b: 6.74
+    batch_size: 16
 
 falcon:
   - id: tiiuae/falcon-7b
     params_b: 7.22
+    batch_size: 16
   - id: tiiuae/falcon-7b-instruct
     params_b: 7.22
+    batch_size: 16
   - id: tiiuae/falcon-rw-7b          # RefinedWeb only, ALiBi rather than RoPE
     params_b: 7.50
+    batch_size: 16
 
 qwen2.5:
-  - id: Qwen/Qwen2.5-7B              # 152k vocab: keep batch <= 8
+  - id: Qwen/Qwen2.5-7B              # 152k vocab, so the logits are ~76 MB per item
     params_b: 7.62
+    batch_size: 8
   - id: Qwen/Qwen2.5-7B-Instruct
     params_b: 7.62
+    batch_size: 8
   - id: Qwen/Qwen2.5-3B              # smallest in the set; use it for smoke tests
     params_b: 3.09
+    batch_size: 32
